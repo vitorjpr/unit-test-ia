@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerador de Testes Unitários</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+        .container {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            margin-top: 0;
+        }
+        form {
+            display: flex;
+            flex-direction: column;
+        }
+        input[type="file"] {
+            margin-bottom: 1rem;
+        }
+        input[type="submit"] {
+            background-color: #4CAF50;
+            color: white;
+            padding: 0.5rem;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        input[type="submit"]:hover {
+            background-color: #45a049;
+        }
+        #progress-bar {
+            width: 100%;
+            background-color: #ddd;
+            display: none;
+            margin-top: 1rem;
+        }
+        #progress {
+            width: 0%;
+            height: 30px;
+            background-color: #4CAF50;
+            text-align: center;
+            line-height: 30px;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Gerador de Testes Unitários</h1>
+        <form id="upload-form">
+            <input type="file" name="file" accept=".zip" required>
+            <input type="submit" value="Gerar Testes">
+        </form>
+        <div id="progress-bar">
+            <div id="progress">0%</div>
+        </div>
+    </div>
+    <script>
+        document.getElementById('upload-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            var formData = new FormData(this);
+            
+            fetch('/generate-tests', {
+                method: 'POST',
+                body: formData
+            }).then(response => {
+                if (!response.ok) {
+                    return response.json().then(err => { throw new Error(err.error); });
+                }
+                document.getElementById('progress-bar').style.display = 'block';
+                checkProgress();
+            }).catch(error => console.error('Erro ao iniciar o processamento:', error));
+        });
+
+        function checkProgress() {
+            fetch('/progress')
+                .then(response => response.json())
+                .then(data => {
+                    var percent = (data.current / data.total) * 100;
+                    document.getElementById('progress').style.width = percent + '%';
+                    document.getElementById('progress').innerHTML = Math.round(percent) + '%';
+                    
+                    if (data.current < data.total || !data.finished) {
+                        setTimeout(checkProgress, 1000);
+                    } else {
+                        checkResult();
+                    }
+                }).catch(error => console.error('Erro ao verificar o progresso:', error));
+        }
+
+        function checkResult() {
+            fetch('/result')
+                .then(response => {
+                    if (response.ok) {
+                        return response.blob();
+                    } else {
+                        return response.json().then(err => {
+                            throw new Error(err.message);
+                        });
+                    }
+                })
+                .then(data => {
+                    if (data instanceof Blob) {
+                        var url = window.URL.createObjectURL(data);
+                        var a = document.createElement('a');
+                        a.href = url;
+                        // Adicionar timestamp ao nome do arquivo
+                        var timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                        a.download = `updated_project_${timestamp}.zip`;
+                        document.body.appendChild(a);
+                        a.click();
+                        window.URL.revokeObjectURL(url);
+                        alert('Download concluído!');
+                    } else {
+                        setTimeout(checkResult, 1000);
+                    }
+                }).catch(error => console.error('Erro ao obter o resultado:', error));
+        }
+    </script>
+</body>
+</html>
