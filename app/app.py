@@ -3,7 +3,6 @@ import zipfile
 import tempfile
 import openai
 import threading
-import io
 from datetime import datetime
 from flask import Flask, request, send_file, render_template, jsonify
 from dotenv import load_dotenv
@@ -20,10 +19,8 @@ app = Flask(__name__)
 # Configurar o cliente OpenAI
 openai.api_key = os.getenv('OPENAI_API_KEY')
 
-# Variável global para armazenar o progresso
+# Variáveis globais para armazenar o progresso e o resultado
 progress = {"current": 0, "total": 0, "finished": False}
-
-# Variável global para armazenar o resultado do processamento
 result = {"status": "Não iniciado", "file_path": None}
 
 def generate_tests_with_gpt(java_code):
@@ -33,18 +30,18 @@ def generate_tests_with_gpt(java_code):
 
 Please ensure the following:
 1. The test class name should be 'Test' followed by the original class name.
-2. Include necessary JUnit imports (e.g., org.junit.jupiter.api.Test).
+2. Include necessary JUnit and Mockito imports.
 3. Create test methods for each public method in the original class.
-4. Use appropriate JUnit assertions.
+4. Use appropriate JUnit assertions and Mockito verifications.
 5. Include setup methods if necessary (e.g., @BeforeEach).
 6. Add comments explaining the purpose of each test.
-
-Provide only the complete test class code without any additional explanations."""
+7. Provide ONLY the Java code for the test class, without any additional text or markdown formatting.
+"""
 
     response = openai.ChatCompletion.create(
-        model="gpt-4",
+        model="gpt-3.5-turbo",
         messages=[
-            {"role": "system", "content": "You are an assistant specialized in generating JUnit tests for Java code."},
+            {"role": "system", "content": "You are an assistant specialized in generating JUnit tests for Java code. Provide only the Java code without any additional text or explanations."},
             {"role": "user", "content": prompt}
         ],
         max_tokens=2048,
@@ -52,11 +49,63 @@ Provide only the complete test class code without any additional explanations.""
         stop=None,
         temperature=0.2
     )
+    test_code = response.choices[0].message['content']
+    
+    # Remove qualquer texto antes ou depois do código Java
+    test_code = test_code.strip()
+    if test_code.startswith("```java"):
+        test_code = test_code[7:]
+    if test_code.endswith("```"):
+        test_code = test_code[:-3]
+    
     logging.info("Teste JUnit gerado pelo GPT-4.")
-    return response.choices[0].message['content']
+    return test_code.strip()
 
 def is_valid_junit_test(test_code):
-    return "@Test" in test_code and "import org.junit" in test_code
+    return "import org.junit" in test_code and "@Test" in test_code and "class Test" in test_code
+
+def format_java_code(java_code):
+    # Garantir que o código comece com uma declaração de pacote
+    if not java_code.strip().startswith("package"):
+        java_code = "package com.example;\n\n" + java_code
+
+    # Garantir que o código termine com uma chave de fechamento
+    java_code = java_code.strip()
+    if not java_code.endswith("}"):
+        java_code += "\n}"
+
+    return java_code
+
+def fix_java_code_with_gpt(java_code):
+    prompt = f"""Please fix and improve the following Java code. Ensure it's a valid JUnit test class, follows best practices, and compiles correctly. Here's the code:
+
+{java_code}
+
+Please provide only the corrected Java code without any additional explanations or markdown formatting.
+"""
+
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {"role": "system", "content": "You are an expert Java developer specializing in writing and fixing JUnit tests. Provide only the corrected Java code without any additional text or explanations."},
+            {"role": "user", "content": prompt}
+        ],
+        max_tokens=2048,
+        n=1,
+        stop=None,
+        temperature=0.2
+    )
+    fixed_code = response.choices[0].message['content']
+    
+    # Remove qualquer texto antes ou depois do código Java
+    fixed_code = fixed_code.strip()
+    if fixed_code.startswith("```java"):
+        fixed_code = fixed_code[7:]
+    if fixed_code.endswith("```"):
+        fixed_code = fixed_code[:-3]
+    
+    logging.info("Código Java corrigido pelo GPT-4.")
+    return fixed_code.strip()
 
 @app.route('/', methods=['GET'])
 def index():
@@ -137,6 +186,10 @@ def process_zip(file_content, filename):
                         try:
                             test_code = generate_tests_with_gpt(java_code)
                             if is_valid_junit_test(test_code):
+                                # Formatar o código de teste gerado
+                                test_code = format_java_code(test_code)
+                                # Corrigir o código de teste usando GPT
+                                test_code = fix_java_code_with_gpt(test_code)
                                 break
                             logging.warning(f"Tentativa {attempt + 1} falhou ao gerar um teste JUnit válido para {file}.")
                         except Exception as e:
@@ -145,7 +198,7 @@ def process_zip(file_content, filename):
                         logging.error(f"Falha ao gerar um teste JUnit válido para {file} após {max_attempts} tentativas.")
                         continue
 
-                    # Salvar o teste gerado
+                    # Salvar o teste gerado, formatado e corrigido
                     test_file_name = f"Test{os.path.splitext(file)[0]}.java"
                     test_file_path = os.path.join(root, test_file_name)
                     with open(test_file_path, 'w') as test_file:
@@ -154,7 +207,7 @@ def process_zip(file_content, filename):
                     # Adicionar o nome do arquivo de teste à lista
                     created_tests.append(test_file_name)
                     
-                    logging.info(f"Teste JUnit gerado e salvo em {test_file_path}.")
+                    logging.info(f"Teste JUnit válido gerado, formatado, corrigido e salvo em {test_file_path}.")
                     
                     # Atualizar o progresso
                     progress["current"] += 1

@@ -55,6 +55,10 @@
             line-height: 30px;
             color: white;
         }
+        #time-elapsed {
+            margin-top: 1rem;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
@@ -67,11 +71,16 @@
         <div id="progress-bar">
             <div id="progress">0%</div>
         </div>
+        <div id="time-elapsed"></div>
     </div>
     <script>
+        let startTime;
+
         document.getElementById('upload-form').addEventListener('submit', function(e) {
             e.preventDefault();
             var formData = new FormData(this);
+            
+            startTime = new Date();
             
             fetch('/generate-tests', {
                 method: 'POST',
@@ -93,12 +102,22 @@
                     document.getElementById('progress').style.width = percent + '%';
                     document.getElementById('progress').innerHTML = Math.round(percent) + '%';
                     
+                    updateTimeElapsed();
+                    
                     if (data.current < data.total || !data.finished) {
                         setTimeout(checkProgress, 1000);
                     } else {
                         checkResult();
                     }
                 }).catch(error => console.error('Erro ao verificar o progresso:', error));
+        }
+
+        function updateTimeElapsed() {
+            const now = new Date();
+            const elapsedTime = (now - startTime) / 1000; // em segundos
+            const minutes = Math.floor(elapsedTime / 60);
+            const seconds = Math.floor(elapsedTime % 60);
+            document.getElementById('time-elapsed').textContent = `Tempo decorrido: ${minutes}m ${seconds}s`;
         }
 
         function checkResult() {
@@ -117,13 +136,17 @@
                         var url = window.URL.createObjectURL(data);
                         var a = document.createElement('a');
                         a.href = url;
-                        // Adicionar timestamp ao nome do arquivo
                         var timestamp = new Date().toISOString().replace(/[:.]/g, '-');
                         a.download = `updated_project_${timestamp}.zip`;
                         document.body.appendChild(a);
                         a.click();
                         window.URL.revokeObjectURL(url);
-                        alert('Download concluído!');
+                        
+                        const endTime = new Date();
+                        const totalTime = (endTime - startTime) / 1000; // em segundos
+                        const minutes = Math.floor(totalTime / 60);
+                        const seconds = Math.floor(totalTime % 60);
+                        alert(`Download concluído! Tempo total: ${minutes}m ${seconds}s`);
                     } else {
                         setTimeout(checkResult, 1000);
                     }
